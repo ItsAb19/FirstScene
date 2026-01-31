@@ -16,6 +16,13 @@ using namespace glm;
 
 // 3D models
 C3dglModel camera;
+C3dglModel table;
+C3dglModel lamp;
+C3dglModel lamp2;
+
+const vec3 LAMP1_BASE_POS = vec3(13.0f, 4.45f, 9.0f);  // on top of table
+const vec3 LAMP2_BASE_POS = vec3(17.0f, 4.45f, 9.0f);  // on top of table
+const float LAMP_BULB_Y_OFFSET = 1.2f;
 
 // The View Matrix
 mat4 matrixView;
@@ -36,10 +43,56 @@ bool init()
 
 	// setup lighting
 	glEnable(GL_LIGHTING);									// --- DEPRECATED
+	//ambient lighting
+	GLfloat globalAmbient[] = { 0.25f, 0.25f, 0.25f, 1.0f }; // tweak: 0.1 = dim, 0.4 = brighter
+	glLightModelfv(GL_LIGHT_MODEL_AMBIENT, globalAmbient);
+	
+	glEnable(GL_LIGHT1);
+	glEnable(GL_LIGHT2);
+
+	// Warm lamp colour
+	GLfloat lampDiffuse[] = { 1.0f, 0.95f, 0.8f, 1.0f };
+	GLfloat lampSpecular[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+	GLfloat lampAmbient[] = { 0.0f, 0.0f, 0.0f, 1.0f }; // keep 0 (global ambient handles ambient)
+
+	// LIGHT1 properties
+	glLightfv(GL_LIGHT1, GL_DIFFUSE, lampDiffuse);
+	glLightfv(GL_LIGHT1, GL_SPECULAR, lampSpecular);
+	glLightfv(GL_LIGHT1, GL_AMBIENT, lampAmbient);
+
+	// LIGHT2 properties
+	glLightfv(GL_LIGHT2, GL_DIFFUSE, lampDiffuse);
+	glLightfv(GL_LIGHT2, GL_SPECULAR, lampSpecular);
+	glLightfv(GL_LIGHT2, GL_AMBIENT, lampAmbient);
+
+	// Attenuation (realistic falloff)
+	glLightf(GL_LIGHT1, GL_CONSTANT_ATTENUATION, 1.0f);
+	glLightf(GL_LIGHT1, GL_LINEAR_ATTENUATION, 0.15f);
+	glLightf(GL_LIGHT1, GL_QUADRATIC_ATTENUATION, 0.05f);
+
+	glLightf(GL_LIGHT2, GL_CONSTANT_ATTENUATION, 1.0f);
+	glLightf(GL_LIGHT2, GL_LINEAR_ATTENUATION, 0.15f);
+	glLightf(GL_LIGHT2, GL_QUADRATIC_ATTENUATION, 0.05f);
+
+	// Specular highlights need material settings
+	GLfloat matSpec[] = { 0.6f, 0.6f, 0.6f, 1.0f };
+	glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, matSpec);
+	glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 32.0f);
+
+	// Material properties
+	GLfloat shininess = 32.0f;
+
+	glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, matSpec);
+	glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, shininess);
+	//----------------------------------------------------------------------------
 	glEnable(GL_LIGHT0);									// --- DEPRECATED
 
 	// load your 3D models here!
 	if (!camera.load("models\\camera.3ds")) return false;
+	if (!table.load("models\\Desk.3ds")) return false;
+	if (!lamp.load("models\\Lamp.3ds")) return false;
+	if (!lamp2.load("models\\Lamp.3ds")) return false;
+
 
 	// Initialise the View Matrix (initial position of the camera)
 	matrixView = rotate(mat4(1), radians(12.f), vec3(1, 0, 0));
@@ -78,6 +131,17 @@ void renderScene(mat4& matrixView, float time, float deltaTime)
 	m = scale(m, vec3(0.04f, 0.04f, 0.04f));
 	camera.render(m);
 
+	//table
+	m = matrixView;
+	m = translate(m, vec3(15.0f, 0, 9.0f));
+	m = rotate(m, radians(180.f), vec3(0.0f, 1.0f, 0.0f));
+	m = scale(m, vec3(0.1f, 0.1f, 0.1f));
+	// ---------- TABLE MATERIAL (WOOD) ----------
+	GLfloat woodCol[] = { 0.55f, 0.35f, 0.18f, 1.0f };
+	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, woodCol);
+	glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, woodCol);
+	table.render(m);
+
 	// setup materials - blue
 	GLfloat rgbaBlue[] = { 0.2f, 0.2f, 0.8f, 1.0f };		// --- DEPRECATED
 	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, rgbaBlue);	// --- DEPRECATED
@@ -85,15 +149,51 @@ void renderScene(mat4& matrixView, float time, float deltaTime)
 
 	// teapot
 	m = matrixView;
-	m = translate(m, vec3(15.0f, 0, 0.0f));
+	m = translate(m, vec3(15.0f, 4.45f, 0.0f));
 	m = rotate(m, radians(120.f), vec3(0.0f, 1.0f, 0.0f));
 	// the GLUT objects require the Model View Matrix setup
 	glMatrixMode(GL_MODELVIEW);								// --- DEPRECATED
 	glLoadIdentity();										// --- DEPRECATED
 	glMultMatrixf((GLfloat*)&m);							// --- DEPRECATED
 	glutSolidTeapot(2.0);
-}
 
+	//lamp1
+	m = matrixView;
+	m = translate(m, vec3(4.0f, -7, -2.0f));
+	m = rotate(m, radians(180.f), vec3(0.70710678f, -0.70710678f, 0.0f)); // axis = (1,-1,0)
+	m = scale(m, vec3(0.1f, 0.1f, 0.1f));
+	lamp.render(m);
+
+	//lamp2
+	m = matrixView;
+	m = translate(m, vec3(20.0f, -7, 4.0f));
+	m = rotate(m, radians(180.f), vec3(0.70710678f, -0.70710678f, 0.0f)); // axis = (1,-1,0)
+	m = scale(m, vec3(0.1f, 0.1f, 0.1f));
+	lamp.render(m);
+}
+void setDirectionalDiffuseLight()
+{
+	// Directional light: (x,y,z,0). Think "light is coming FROM this direction toward the scene".
+	// Example: coming from above-right-front -> shining down onto the table.
+	GLfloat dir[] = { -0.3f,  1.0f,  0.4f,  0.0f };  // w=0 => directional
+	GLfloat diffuse[] = { 1.0f,  1.0f,  1.0f,  1.0f };  // main brightness
+	GLfloat ambient[] = { 0.05f, 0.05f, 0.05f, 1.0f };  // keep low (ambient is separate)
+	GLfloat spec[] = { 0.2f,  0.2f,  0.2f,  1.0f };  // optional
+
+	glEnable(GL_LIGHTING);
+	glEnable(GL_LIGHT0);
+
+	glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuse);
+	glLightfv(GL_LIGHT0, GL_AMBIENT, ambient);
+	glLightfv(GL_LIGHT0, GL_SPECULAR, spec);
+
+	// Make it "world directional": load the current view, then set the light direction
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
+	glMultMatrixf((GLfloat*)&matrixView);
+
+	glLightfv(GL_LIGHT0, GL_POSITION, dir);
+}
 void onRender()
 {
 	// these variables control time & animation
@@ -113,6 +213,21 @@ void onRender()
 		_vel * deltaTime),		// animate camera motion (controlled by WASD keys)
 		-pitch, vec3(1, 0, 0))	// switch the pitch on
 		* matrixView;
+
+	setDirectionalDiffuseLight();
+	//LIGHTING
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
+	glMultMatrixf((GLfloat*)&matrixView);
+
+	// Point lights at the lamp "bulbs" (above each lamp base)
+	vec3 bulb1 = LAMP1_BASE_POS + vec3(0.0f, LAMP_BULB_Y_OFFSET, 0.0f);
+	GLfloat lamp1Pos[] = { bulb1.x, bulb1.y, bulb1.z, 1.0f };
+	glLightfv(GL_LIGHT1, GL_POSITION, lamp1Pos);
+
+	vec3 bulb2 = LAMP2_BASE_POS + vec3(0.0f, LAMP_BULB_Y_OFFSET, 0.0f);
+	GLfloat lamp2Pos[] = { bulb2.x, bulb2.y, bulb2.z, 1.0f };
+	glLightfv(GL_LIGHT2, GL_POSITION, lamp2Pos);
 
 	// render the scene objects
 	renderScene(matrixView, time, deltaTime);
