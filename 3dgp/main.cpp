@@ -3,6 +3,8 @@
 #include <3dgl/3dgl.h>
 #include <GL/glut.h>
 #include <GL/freeglut_ext.h>
+#include <fstream>
+#include <vector>
 
 // Include GLM core features
 #include "glm/glm.hpp"
@@ -19,10 +21,19 @@ C3dglModel camera;
 C3dglModel table;
 C3dglModel lamp;
 C3dglModel lamp2;
+C3dglModel vase;
+
+C3dglModel chair1;
+C3dglModel chair2;
+C3dglModel chair3;
+C3dglModel chair4;
+
+//wood id
+GLuint idTexWood = 0;
 
 const vec3 LAMP1_BASE_POS = vec3(13.0f, 4.45f, 9.0f);  // on top of table
 const vec3 LAMP2_BASE_POS = vec3(17.0f, 4.45f, 9.0f);  // on top of table
-const float LAMP_BULB_Y_OFFSET = 1.2f;
+const float LAMP_BULB_Y_OFFSET = 0.8f;
 
 // The View Matrix
 mat4 matrixView;
@@ -33,6 +44,61 @@ float accel = 4.f;		// camera acceleration
 vec3 _acc(0), _vel(0);	// camera acceleration and velocity vectors
 float _fov = 60.f;		// field of view (zoom)
 
+static bool LoadBMP24(const char* filename, int& width, int& height, std::vector<unsigned char>& rgb)
+{
+	std::ifstream f(filename, std::ios::binary);
+	if (!f) return false;
+
+	unsigned char header[54];
+	f.read(reinterpret_cast<char*>(header), 54);
+	if (!f) return false;
+
+	// "BM"
+	if (header[0] != 'B' || header[1] != 'M') return false;
+
+	// Read important fields from BMP header
+	int dataOffset = *reinterpret_cast<int*>(&header[10]);
+	width = *reinterpret_cast<int*>(&header[18]);
+	height = *reinterpret_cast<int*>(&header[22]);
+	short bpp = *reinterpret_cast<short*>(&header[28]);
+	int compression = *reinterpret_cast<int*>(&header[30]);
+
+	if (width <= 0 || height == 0) return false;
+	if (bpp != 24) return false;          // this loader is for 24-bit BMP only
+	if (compression != 0) return false;   // must be uncompressed
+
+	const int absH = (height < 0) ? -height : height;
+	const int rowPadded = (width * 3 + 3) & (~3); // rows padded to 4 bytes
+
+	std::vector<unsigned char> bgr(rowPadded * absH);
+	f.seekg(dataOffset, std::ios::beg);
+	f.read(reinterpret_cast<char*>(bgr.data()), bgr.size());
+	if (!f) return false;
+
+	rgb.resize(width * absH * 3);
+
+	// BMP can be stored bottom-up (height > 0) or top-down (height < 0)
+	const bool bottomUp = (height > 0);
+
+	for (int y = 0; y < absH; ++y)
+	{
+		int srcY = bottomUp ? (absH - 1 - y) : y;
+		const unsigned char* srcRow = &bgr[srcY * rowPadded];
+		unsigned char* dstRow = &rgb[y * width * 3];
+
+		for (int x = 0; x < width; ++x)
+		{
+			// BGR -> RGB
+			dstRow[x * 3 + 0] = srcRow[x * 3 + 2];
+			dstRow[x * 3 + 1] = srcRow[x * 3 + 1];
+			dstRow[x * 3 + 2] = srcRow[x * 3 + 0];
+		}
+	}
+
+	// normalize height to positive for caller
+	height = absH;
+	return true;
+}
 bool init()
 {
 	// rendering states
@@ -46,9 +112,6 @@ bool init()
 	//ambient lighting
 	GLfloat globalAmbient[] = { 0.25f, 0.25f, 0.25f, 1.0f }; // tweak: 0.1 = dim, 0.4 = brighter
 	glLightModelfv(GL_LIGHT_MODEL_AMBIENT, globalAmbient);
-	
-	glEnable(GL_LIGHT1);
-	glEnable(GL_LIGHT2);
 
 	// Warm lamp colour
 	GLfloat lampDiffuse[] = { 1.0f, 0.95f, 0.8f, 1.0f };
@@ -79,11 +142,6 @@ bool init()
 	glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, matSpec);
 	glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 32.0f);
 
-	// Material properties
-	GLfloat shininess = 32.0f;
-
-	glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, matSpec);
-	glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, shininess);
 	//----------------------------------------------------------------------------
 	glEnable(GL_LIGHT0);									// --- DEPRECATED
 
@@ -92,6 +150,43 @@ bool init()
 	if (!table.load("models\\Desk.3ds")) return false;
 	if (!lamp.load("models\\Lamp.3ds")) return false;
 	if (!lamp2.load("models\\Lamp.3ds")) return false;
+	if (!vase.load("models\\vase.3ds")) return false;
+	if (!chair1.load("models\\Chair.3ds")) return false;
+	if (!chair2.load("models\\Chair.3ds")) return false;
+	if (!chair3.load("models\\Chair.3ds")) return false;
+	if (!chair4.load("models\\Chair.3ds")) return false;
+
+	int tw = 0, th = 0;
+	std::vector<unsigned char> texRGB;
+
+	if (!LoadBMP24("models\\Table.bmp.bmp", tw, th, texRGB))
+	{
+		C3dglLogger::log("FAILED to load BMP: models\\oak.bmp (must be 24-bit, uncompressed)");
+		return false;
+	}
+
+	glGenTextures(1, &idTexWood);
+	glBindTexture(GL_TEXTURE_2D, idTexWood);
+
+	// alignment safe for any width
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+	// filtering
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	// wrapping
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+	// upload RGB data
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, tw, th, 0, GL_RGB, GL_UNSIGNED_BYTE, texRGB.data());
+
+	// mix with lighting
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+
 
 
 	// Initialise the View Matrix (initial position of the camera)
@@ -126,7 +221,7 @@ void renderScene(mat4& matrixView, float time, float deltaTime)
 
 	// camera
 	m = matrixView;
-	m = translate(m, vec3(-3.0f, 0, 0.0f));
+	m = translate(m, vec3(-18.0f, 0, 0.0f));
 	m = rotate(m, radians(180.f), vec3(0.0f, 1.0f, 0.0f));
 	m = scale(m, vec3(0.04f, 0.04f, 0.04f));
 	camera.render(m);
@@ -140,7 +235,13 @@ void renderScene(mat4& matrixView, float time, float deltaTime)
 	GLfloat woodCol[] = { 0.55f, 0.35f, 0.18f, 1.0f };
 	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, woodCol);
 	glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, woodCol);
+	glEnable(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, idTexWood);
+
 	table.render(m);
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glDisable(GL_TEXTURE_2D);
 
 	// setup materials - blue
 	GLfloat rgbaBlue[] = { 0.2f, 0.2f, 0.8f, 1.0f };		// --- DEPRECATED
@@ -149,8 +250,9 @@ void renderScene(mat4& matrixView, float time, float deltaTime)
 
 	// teapot
 	m = matrixView;
-	m = translate(m, vec3(15.0f, 4.45f, 0.0f));
+	m = translate(m, vec3(15.0f, 3.7f, 0.0f));
 	m = rotate(m, radians(120.f), vec3(0.0f, 1.0f, 0.0f));
+	m = scale(m, vec3(0.5f, 0.5f, 0.5f));
 	// the GLUT objects require the Model View Matrix setup
 	glMatrixMode(GL_MODELVIEW);								// --- DEPRECATED
 	glLoadIdentity();										// --- DEPRECATED
@@ -170,6 +272,73 @@ void renderScene(mat4& matrixView, float time, float deltaTime)
 	m = rotate(m, radians(180.f), vec3(0.70710678f, -0.70710678f, 0.0f)); // axis = (1,-1,0)
 	m = scale(m, vec3(0.1f, 0.1f, 0.1f));
 	lamp.render(m);
+
+	//chair 1
+	m = matrixView;
+	m = translate(m, vec3(12.0f, -11.5f, -5.0f));
+	m = rotate(m, 90.0f * 0.01745329252f, vec3(1.0f, 0.0f, 0.0f));
+	m = scale(m, vec3(0.07f, 0.07f, 0.07f));
+	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, woodCol);
+	glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, woodCol);
+	glEnable(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, idTexWood);
+
+	chair1.render(m);
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glDisable(GL_TEXTURE_2D);
+
+	//chair 2
+	m = matrixView;
+	m = translate(m, vec3(12.0f, -11.5f, 7.0f));
+	m = rotate(m, 180.0f * 0.01745329252f, vec3(0.0f, 0.70710678f, -0.70710678f));
+	m = scale(m, vec3(0.07f, 0.07f, 0.07f));
+	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, woodCol);
+	glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, woodCol);
+	glEnable(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, idTexWood);
+
+	chair2.render(m);
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glDisable(GL_TEXTURE_2D);
+
+	//chair 3
+	m = matrixView;
+	m = translate(m, vec3(-1.0f, -11.5f, 0.0f));
+	m = rotate(m, 90.0f * 0.01745329252f, vec3(1.0f, 0.0f, 0.0f));
+	m = scale(m, vec3(0.07f, 0.07f, 0.07f));
+	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, woodCol);
+	glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, woodCol);
+	glEnable(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, idTexWood);
+
+	chair3.render(m);
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glDisable(GL_TEXTURE_2D);
+
+	//chair 4
+	m = matrixView;
+	m = translate(m, vec3(26.0f, -11.5f, 0.0f));
+	m = rotate(m, 90.0f * 0.01745329252f, vec3(1.0f, 0.0f, 0.0f));
+	m = scale(m, vec3(0.07f, 0.07f, 0.07f));
+	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, woodCol);
+	glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, woodCol);
+	glEnable(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, idTexWood);
+
+	chair4.render(m);
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glDisable(GL_TEXTURE_2D);
+
+	//vase
+	m = matrixView;
+	m = translate(m, vec3(10.0f, 4.8f, 2.0f));
+	m = rotate(m, 90.0f * 0.01745329252f, vec3(1.0f, 0.0f, 0.0f));
+	m = scale(m, vec3(2.1f, 2.1f, 2.1f));
+	vase.render(m);
 }
 void setDirectionalDiffuseLight()
 {
